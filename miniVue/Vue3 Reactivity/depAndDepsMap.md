@@ -5,7 +5,6 @@
 let product = {quantity: 2, price: 5}
 let effect = () => {product.quantity * product.price}
 let total = effect()
-
 ```
 我们更新price或者quantity，total肯定不会变，但是Vue会自行修改total,所以我们可以将effect存储在一个名为dep的Set中(避免重复)，当发生改变时，我们去执行dep中的effect，就实现了响应式
 
@@ -331,3 +330,16 @@ console.log(total, salePrice.value)
 应用了js对对象的计算器属性，如果get就track， set就trigger
 计算total的时候，salePrice进行了get，所以会track计算total的函数
 当我们计算salePrice时，会trigger那个函数，从而更新total
+
+
+加入computed
+
+```js
+function computed(getter) {
+    let result = ref()
+    effect(() => {
+        result.value = getter()
+    })
+    return result
+}
+```

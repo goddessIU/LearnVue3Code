@@ -1,34 +1,49 @@
-function h(tag, props, children) {
-    return {
-        tag,
-        props,
-        children
-    }
-}
+<div id="app"></div>
 
-function mount(vnode, container) {
-    const el = vnode.el = document.createElement(vnode.tag)
-    if (vnode.props) {
-        for (const key in vnode.props) {
-        const value = vnode.props[key]
-        el.setAttribute(key, value)
+<style>
+    .red {
+        color: red;
+    }
+
+    .green {
+        color: green;
+    }
+</style>
+
+<script>
+    function h(tag, props, children) {
+        return {
+            tag,
+            props,
+            children
         }
     }
-    if (vnode.children) {
-        if (typeof vnode.children === 'string') {
-            el.textContent = vnode.children
-        } else {
-            vnode.children.forEach(child => {
-                mount(child, el)
-            })
-        }
-    }
-    
-    
-    container.append(el)
-}
 
-function patch(n1, n2) {
+    function mount(vdom, container) {
+        const el = vdom.el = document.createElement(vdom.tag)
+        if (vdom.props) {
+            for (let key in vdom.props) {
+                if (vdom.props.hasOwnProperty(key)) {
+                    el.setAttribute(key, vdom.props[key])
+                }
+            }
+        }
+        if (vdom.children) {
+            if (typeof vdom.children === 'string') {
+                el.textContent = vdom.children
+            } else {
+                vdom.children.forEach((child) => {
+                    mount(child, el)
+                })
+            }
+
+
+        }
+
+        container.append(el)
+    }
+
+    function patch(n1, n2) {
     if (n1.tag === n2.tag) {
         const el = n2.el = n1.el
 
@@ -83,13 +98,14 @@ function patch(n1, n2) {
     }
 }
 
-const vdom = h('div', { class: 'red' }, [
-    h('span', null, 'hello')
-])
+    const vdom = h('div', { class: 'red' }, [
+        h('span', null, 'hello')
+    ])
 
-const vdom2 = h('div', { class: 'green' }, [
-    h('span', null, 'changed!')
-])
+    const vdom2 = h('div', { class: 'green' }, [
+        h('span', null, 'changed!')
+    ])
 
-mount(vdom, document.getElementById('app'))
-patch(vdom, vdom2)
+    mount(vdom, document.getElementById('app'))
+    patch(vdom, vdom2)
+</script>
