@@ -6,73 +6,80 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
+    <style>
+        .red {
+            color: red;
+        }
+
+        .green {
+            color: green;
+        }
+    </style>
 </head>
 
 <body>
     <div id="app"></div>
-</body>
-
-<script>
-    function h(tag, props, children) {
-        return {
-            tag,
-            props,
-            children
+    <script>
+        function h(tag, props, children) {
+            return {
+                tag,
+                props,
+                children
+            }
         }
-    }
 
-    function mount(vnode, container) {
-        const el = vnode.el = document.createElement(vnode.tag)
-        if (vnode.props) {
-            for (const key in vnode.props) {
-                const value = vnode.props[key]
-                if (key.startsWith('on')) {
-                    el.addEventListener(key.slice(2).toLowerCase(), value)
+        function mount(vdom, container) {
+            const ele = vdom.el = document.createElement(vdom.tag)
+            if (vdom.props) {
+                for (const key in vdom.props) {
+                    if (vdom.props.hasOwnProperty(key)) {
+                        if (key.startsWith('on')) {
+                            let event = key.slice(2).toLowerCase()
+                            ele.addEventListener(event, vdom.props[key])
+                        } else {
+                            ele.setAttribute(key, vdom.props[key])
+                        }
+                    }
+                }
+            }
+            if (vdom.children) {
+                let children = vdom.children
+                if (typeof children === 'string') {
+                    ele.textContent = children
                 } else {
-                    el.setAttribute(key, value)
+                    children.forEach(child => {
+                        mount(child, ele)
+                    })
                 }
             }
-        }
-        if (vnode.children) {
-            if (typeof vnode.children === 'string') {
-                el.textContent = vnode.children
-            } else {
-                vnode.children.forEach(child => {
-                    mount(child, el)
-                })
-            }
+            container.append(ele)
         }
 
-
-        container.append(el)
-    }
-
-    function patch(n1, n2) {
-        if (n1.tag === n2.tag) {
-            const el = n2.el = n1.el
-            const oldProps = n1.props || {}
-            const newProps = n2.props || {}
-            for (const key in newProps) {
-                const oldValue = oldProps[key]
-                const newValue = newProps[key]
-                if (newValue !== oldValue) {
-                    el.setAttribute(key, newValue)
+        function patch(vdom1, vdom2) {
+            const el = vdom2.el = vdom1.el
+            const oldProps = vdom1.props || {}
+            const newProps = vdom2.props || {}
+            for (let key in newProps) {
+                if (newProps.hasOwnProperty(key)) {
+                    const oldValue = oldProps[key]
+                    const newValue = newProps[key]
+                    if (oldValue !== newValue) {
+                        el.setAttribute(key, newValue)
+                    }
                 }
             }
-            for (const key in oldProps) {
-                if (!key in newProps) {
-                    el.removeAttribute(key)
+            for (let key in oldProps) {
+                if (oldProps.hasOwnProperty(key)) {
+                    if (!key in newProps) {
+                        el.removeAttribute(key)
+                    }
                 }
             }
-
-            //children
-            const oldChildren = n1.children
-            const newChildren = n2.children
+            const oldChildren = vdom1.children
+            const newChildren = vdom2.children
             if (typeof newChildren === 'string') {
                 if (typeof oldChildren === 'string') {
-                    if (newChildren !== oldChildren) {
-                        el.textContent = newChildren
-                    }
+                    el.textContent = newChildren
                 } else {
                     el.textContent = newChildren
                 }
@@ -89,102 +96,95 @@
                     }
                     if (newChildren.length > oldChildren.length) {
                         newChildren.slice(commonLength).forEach(child => mount(child, el))
-                    } else if (oldChildren.length > newChildren.length) {
+                    } else if (newChildren.length < oldChildren.length) {
                         oldChildren.slice(commonLength).forEach(child => el.removeElement(child.el))
                     }
                 }
             }
-        } else {
-
         }
-    }
 
-
-    let activeEffect
-    class Dep {
-        subscribers = new Set()
-        depend() {
-            if (activeEffect) {
-                this.subscribers.add(activeEffect)
+        let activeEffect = null
+        class Dep {
+            subscribers = new Set()
+            depend() {
+                if (activeEffect) {
+                    this.subscribers.add(activeEffect)
+                }
+            }
+            notify() {
+                this.subscribers.forEach(effect => effect())
             }
         }
-        notify() {
-            this.subscribers.forEach(effect => {
-                effect()
+
+        function watchEffect(effect) {
+            activeEffect = effect
+            activeEffect()
+            activeEffect = null
+        }
+
+        const targetMap = new WeakMap()
+        function getDep(target, key) {
+            let depsMap = targetMap.get(target)
+            if (!depsMap) {
+                depsMap = new Map()
+                targetMap.set(target, depsMap)
+            }
+            let dep = depsMap.get(key)
+            if (!dep) {
+                dep = new Dep()
+                depsMap.set(key, dep)
+            }
+            return dep
+        }
+        const reactiveHandlers = {
+            get(target, key, receiver) {
+                let dep = getDep(target, key)
+                dep.depend()
+                return Reflect.get(target, key, receiver)
+            },
+            set(target, key, newVal, receiver) {
+                let dep = getDep(target, key)
+                let res = Reflect.set(target, key, newVal, receiver)
+                dep.notify()
+                return res
+            }
+        }
+
+        function reactive(obj) {
+            return new Proxy(obj, reactiveHandlers)
+        }
+
+        const App = {
+            data: reactive({
+                count: 0
+            }),
+            render() {
+                return h('div', {
+                    onClick: () => {
+                        this.data.count++
+                    }
+                }, String(this.data.count))
+            }
+        }
+
+        function mountApp(component, container) {
+            let isMount = false
+            let preVdom = null
+            watchEffect(() => {
+                if (!isMount) {
+                    preVdom = component.render()
+                    mount(preVdom, container)
+                    isMount = true
+                } else {
+                    const newVdom = component.render()
+                    patch(preVdom, newVdom)
+                    preVdom = newVdom
+                }
             })
         }
-    }
+        mountApp(App, document.querySelector('#app'))
 
-    function watchEffect(effect) {
-        activeEffect = effect
-        activeEffect()
-        activeEffect = null
-    }
-
-    const targetMap = new WeakMap()
-    function getDep(target, key) {
-        let depsMap = targetMap.get(target)
-        if (!depsMap) {
-            depsMap = new Map()
-            targetMap.set(target, depsMap)
-        }
-        let dep = depsMap.get(key)
-        if (!dep) {
-            dep = new Dep()
-            depsMap.set(key, dep)
-        }
-        return dep
-    }
-    const reactiveHandlers = {
-        get(target, key, receiver) {
-            const dep = getDep(target, key)
-            dep.depend()
-            return Reflect.get(target, key, receiver)
-        },
-        set(target, key, value, receiver) {
-            const dep = getDep(target, key)
-            let res = Reflect.set(target, key, value, receiver)
-            dep.notify()
-            return res
-        }
-    }
-
-    function reactive(raw) {
-        return new Proxy(raw, reactiveHandlers)
-    }
-
-    const App = {
-        data: reactive({
-            count: 0
-        }),
-        render() {
-            let that = this
-            return h('div', {
-                onClick: () => {
-                    console.log(this === that)
-                    this.data.count++
-                }
-            }, String(this.data.count))
-        }
-    }
-
-    function mountApp(component, container) {
-        let isMount = false
-        let preVdom
-        watchEffect(() => {
-            if (!isMount) {
-                preVdom = component.render()
-                mount(preVdom, container)
-                isMount = true
-            } else {
-                const newVdom = component.render()
-                patch(preVdom, newVdom)
-                preVdom = newVdom
-            }
-        })
-
-    }
-    mountApp(App, document.querySelector('#app'))
-</script>
+    </script>
+</body>
 
 </html>

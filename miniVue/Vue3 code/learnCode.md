@@ -190,3 +190,266 @@ watchEffect(() => {
     }
 })
 ```
+
+
+## 实现reactive
+```js
+let activeEffect
+class Dep {
+    subscribers = new Set()
+    depend() {
+        if (activeEffect) {
+            this.subscribers.add(activeEffect)
+        }
+    }
+    notify() {
+        this.subscribers.forEach(effect => {
+            effect()
+        })
+    }
+}
+
+function watchEffect(effect) {
+    activeEffect = effect
+    activeEffect()
+    activeEffect = null
+}
+
+const targetMap = new WeakMap()
+function getDep(target, key) {
+    let depsMap = targetMap.get(target)
+    if (!depsMap) {
+        depsMap = new Map()
+        targetMap.set(target, depsMap)
+    }
+    let dep = depsMap.get(key)
+    if (!dep) {
+        dep = new Dep()
+        depsMap.set(key, dep)
+    }
+    return dep
+}
+const reactiveHandlers = {
+    get(target, key, receiver) {
+        const dep = getDep(target, key)
+        dep.depend()
+        return Reflect.get(target, key, receiver)
+    },
+    set(target, key, value, receiver) {
+        const dep = getDep(target, key)
+        let res = Reflect.set(target, key, value, receiver)
+        dep.notify()
+        return res
+    }
+}
+
+function reactive(raw) {
+    return new Proxy(raw, reactiveHandlers)
+}
+
+
+const state = reactive({
+    count: 0
+})
+watchEffect(() => {
+    console.log(state.count)
+})
+state.count++
+watchEffect(() => {
+    console.log(state.msg)
+})
+state.msg = 'hi'
+```
+
+
+## miniVue成型
+```html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+
+<body>
+    <div id="app"></div>
+</body>
+
+<script>
+    function h(tag, props, children) {
+        return {
+            tag,
+            props,
+            children
+        }
+    }
+
+    function mount(vnode, container) {
+        const el = vnode.el = document.createElement(vnode.tag)
+        if (vnode.props) {
+            for (const key in vnode.props) {
+                const value = vnode.props[key]
+                if (key.startsWith('on')) {
+                    el.addEventListener(key.slice(2).toLowerCase(), value)
+                } else {
+                    el.setAttribute(key, value)
+                }
+            }
+        }
+        if (vnode.children) {
+            if (typeof vnode.children === 'string') {
+                el.textContent = vnode.children
+            } else {
+                vnode.children.forEach(child => {
+                    mount(child, el)
+                })
+            }
+        }
+
+
+        container.append(el)
+    }
+
+    function patch(n1, n2) {
+        if (n1.tag === n2.tag) {
+            const el = n2.el = n1.el
+            const oldProps = n1.props || {}
+            const newProps = n2.props || {}
+            for (const key in newProps) {
+                const oldValue = oldProps[key]
+                const newValue = newProps[key]
+                if (newValue !== oldValue) {
+                    el.setAttribute(key, newValue)
+                }
+            }
+            for (const key in oldProps) {
+                if (!key in newProps) {
+                    el.removeAttribute(key)
+                }
+            }
+
+            //children
+            const oldChildren = n1.children
+            const newChildren = n2.children
+            if (typeof newChildren === 'string') {
+                if (typeof oldChildren === 'string') {
+                    if (newChildren !== oldChildren) {
+                        el.textContent = newChildren
+                    }
+                } else {
+                    el.textContent = newChildren
+                }
+            } else {
+                if (typeof oldChildren === 'string') {
+                    el.innerHTML = ''
+                    newChildren.forEach(child => {
+                        mount(child, el)
+                    })
+                } else {
+                    const commonLength = Math.min(newChildren.length, oldChildren.length)
+                    for (let i = 0; i < commonLength; i++) {
+                        patch(oldChildren[i], newChildren[i])
+                    }
+                    if (newChildren.length > oldChildren.length) {
+                        newChildren.slice(commonLength).forEach(child => mount(child, el))
+                    } else if (oldChildren.length > newChildren.length) {
+                        oldChildren.slice(commonLength).forEach(child => el.removeElement(child.el))
+                    }
+                }
+            }
+        } else {
+
+        }
+    }
+
+
+    let activeEffect
+    class Dep {
+        subscribers = new Set()
+        depend() {
+            if (activeEffect) {
+                this.subscribers.add(activeEffect)
+            }
+        }
+        notify() {
+            this.subscribers.forEach(effect => {
+                effect()
+            })
+        }
+    }
+
+    function watchEffect(effect) {
+        activeEffect = effect
+        activeEffect()
+        activeEffect = null
+    }
+
+    const targetMap = new WeakMap()
+    function getDep(target, key) {
+        let depsMap = targetMap.get(target)
+        if (!depsMap) {
+            depsMap = new Map()
+            targetMap.set(target, depsMap)
+        }
+        let dep = depsMap.get(key)
+        if (!dep) {
+            dep = new Dep()
+            depsMap.set(key, dep)
+        }
+        return dep
+    }
+    const reactiveHandlers = {
+        get(target, key, receiver) {
+            const dep = getDep(target, key)
+            dep.depend()
+            return Reflect.get(target, key, receiver)
+        },
+        set(target, key, value, receiver) {
+            const dep = getDep(target, key)
+            let res = Reflect.set(target, key, value, receiver)
+            dep.notify()
+            return res
+        }
+    }
+
+    function reactive(raw) {
+        return new Proxy(raw, reactiveHandlers)
+    }
+
+    const App = {
+        data: reactive({
+            count: 0
+        }),
+        render() {
+            return h('div', {
+                onClick: () => {
+                    this.data.count++
+                }
+            }, String(this.data.count))
+        }
+    }
+
+    function mountApp(component, container) {
+        let isMount = false
+        let preVdom
+        watchEffect(() => {
+            if (!isMount) {
+                preVdom = component.render()
+                mount(preVdom, container)
+                isMount = true
+            } else {
+                const newVdom = component.render()
+                patch(preVdom, newVdom)
+                preVdom = newVdom
+            }
+        })
+
+    }
+    mountApp(App, document.querySelector('#app'))
+</script>
+
+</html>
+```
